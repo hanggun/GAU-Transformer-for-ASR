@@ -1,0 +1,47 @@
+train:
+  train_mode: True
+  multi_card: True
+  gpu_id: '0,1,2,3'
+evaluate:
+  train_mode: False
+  multi_card: False
+  gpu_id: '0'
+train_loaddirs:
+  - 'D:\open_data\speech\primewords_md_2018_set1\tfrecord_data\test'  # local file只是用于本地测试，所以文件都写测试集
+dev_loaddirs:
+  - 'D:\open_data\speech\primewords_md_2018_set1\tfrecord_data\test'
+train_csvs:
+  - 'D:\open_data\speech\primewords_md_2018_set1\test.csv'
+dev_csvs:
+  - 'D:\open_data\speech\primewords_md_2018_set1\test.csv'
+
+load_model_path: 'saved_model/multitask_L16_H512_A128/best_model.h5'
+save_model_path: 'saved_model/multitask_L16_H512_A128/best_model'
+log_dir: 'logs/'
+task_name: 'multitask_L32_H1024_A512' # name for logs
+model_name: 'gau' # 'transformer' 使用transformer
+scorer_path: 'scorers/kenlm_prime.scorer'
+
+belu_callback: True # if True save best model custom callback
+continue_train: False # if True continue train from existing checkpoint but need to change the initial learning rate
+load_multi_checkpoint: False
+inter_CTC: True
+greedy: False
+num_checkpoints: 1
+start_step: 80000 # not useful for now
+learning_rate: 1.0
+max_file_size:
+feature_len: 1200
+feature_dim: 80
+batch_size: 32
+warmup: 41500
+epochs: 1000
+seed: 42
+hidden_act: 'swish' # ['gelu', 'linear'] this set change linear to GLU in FFN
+hidden_size: 512
+inter_hidden_size: 1024
+attention_key_size: 512
+n_layer: 32
+n_head: 1
+dropout_rate: 0.1
+attention_dropout_rate: 0.1

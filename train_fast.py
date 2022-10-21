@@ -3,11 +3,10 @@ import os
 os.environ['TF_KERAS'] = '1'
 os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu_id
 
-from bert4keras.snippets import DataGenerator, sequence_padding, parallel_apply_generator
 from bert4keras.optimizers import Adam
 from optimizer import extend_with_transformer_schedule
 from tqdm import tqdm
-from models import *
+from models import GAU_alphaV2, K, Loss, Input, Dense, keras
 from pathlib import Path
 from datetime import datetime
 from asr_utils.features.augmentation import Augmentation
@@ -59,6 +58,13 @@ def tfrecord_dataloader(files, train_mode=True, repeat=config.epochs, limit=None
         feature = tf.reshape(feature, [height, width])
         return feature, label, tf.math.ceil(tf.math.ceil(height[..., None]/2)/2), label_len[..., None]
 
+    # def numpy_process(feature, label, height, label_len):
+    #     label = alphabet.Decode(label.numpy().tolist())
+    #     label = alphabet_word.Encode(label.replace(' ', ''))
+    #     label = tf.convert_to_tensor(np.array(label))
+    #     label = tf.cast(label, tf.int32)
+    #     return feature, label, height, label_len
+
     def augment(features, transcripts, seq_lens, label_lens):
         features = augmentation.feature_augment(tf.expand_dims(features, -1))
         features = tf.squeeze(features, -1)
@@ -91,6 +97,7 @@ def tfrecord_dataloader(files, train_mode=True, repeat=config.epochs, limit=None
                    )
     else:
         dataset = (dataset.map(map_func=map_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+                   .filter(filter_fn)
                    .padded_batch(config.batch_size, ([config.feature_len, 80], [None], [1], [1]))
                    .map(process_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
                    .prefetch(tf.data.experimental.AUTOTUNE)
@@ -116,7 +123,6 @@ class CrossEntropy(Loss):
 
 
 def build_model():
-    # 词表不同，将Encoder和Decoder分开创建
     MODEL = GAU_alphaV2(
         vocab_size=None,
         hidden_size=config.hidden_size, # 512
@@ -195,26 +201,8 @@ class Evaluator(keras.callbacks.Callback):
         self.count += 1
 
 
-def load_data(filename):
-    """加载数据，一行一条文本"""
-    maxlen = 0
-    max_filesize = 0
-    out = []
-    df = pd.read_csv(filename, header=0)
-    for i in range(df.shape[0]):
-        wav_filename = df.loc[i, 'wav_filename']
-        wav_filesize = df.loc[i, 'wav_filesize']
-        transcript = df.loc[i, 'transcript']
-        maxlen = max(maxlen, len(transcript.split()))
-        max_filesize = max(max_filesize, wav_filesize)
-        if wav_filesize > 640044:  # 去掉大于20s的
-            continue
-        out.append((wav_filename, transcript))
-    print(f"maxlen of {filename} is {maxlen}, max_filesize of {filename} is {max_filesize}, number of samples is {len(out)}")
-    return out
-
-
 def check_files(loaddirs):
+    """防止出现对应文件夹下没有文件的情况"""
     files = []
     for loaddir in loaddirs:
         tmp = glob.glob(loaddir + '/*.tfrecords')
@@ -226,6 +214,7 @@ def check_files(loaddirs):
 
 
 def cal_steps(csv_files, batch_size):
+    """由于使用generator，数据总量需要自己进行计算"""
     total = 0
     for file in csv_files:
         data = list(csv.DictReader(open(file, 'r', encoding='utf-8')))
@@ -237,6 +226,26 @@ def cal_steps(csv_files, batch_size):
     return steps
 
 
+def average_checkpoints():
+    """将多个模型的权重进行平均，达到更鲁棒的效果"""
+    model = build_model()
+    weights = []
+    for i in tqdm(range(config.num_checkpoints), desc='load model'):
+        if not weights:
+            model.load_weights('%s%s.h5' % (config.save_model_path, str(i)))
+            weights = model.get_weights()
+        else:
+            model = build_model()
+            model.load_weights('%s%s.h5' % (config.save_model_path, str(i)))
+            tmp_weights = model.get_weights()
+            for i, w in enumerate(tmp_weights):
+                weights[i] += w
+    for i in range(len(weights)):
+        weights[i] = weights[i] / config.num_checkpoints
+    model = build_model()
+    model.set_weights(weights)
+    return model
+
 if __name__ == '__main__':
     print(config.__dict__)
     if not os.path.exists(Path(config.save_model_path).parent):
@@ -244,39 +253,49 @@ if __name__ == '__main__':
     if not os.path.exists(config.log_dir):
         os.mkdir(config.log_dir)
 
+    # 加载训练用的tfrecord数据文件
     train_files = check_files(config.train_loaddirs)
     dev_files = check_files(config.dev_loaddirs)
 
+    # 数据生成器
     gen_dataset = tfrecord_dataloader(train_files, train_mode=True)
     dev_gen_dataset = tfrecord_dataloader(dev_files, train_mode=False)
 
+    # 计算训练一轮所需步数
     train_steps = cal_steps(config.train_csvs, config.batch_size)
     dev_steps = cal_steps(config.dev_csvs, config.batch_size)
 
     evaluator = Evaluator()
+    # 是否从之前的checkpoint点进行继续训练
     if config.continue_train:
         model.load_weights(config.load_model_path)
+    # 多卡用不多卡训练，csvlogger的来源不同，用于进行log记录
     if config.multi_card:
         csv_logger = keras.callbacks.CSVLogger(f"{config.log_dir}train_{config.task_name}_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log")
     else:
         csv_logger = tf.keras.callbacks.CSVLogger(f"{config.log_dir}train_{config.task_name}_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.log")
+    # 此callback根据每一轮最低的损失进行保存checkpoint
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(config.save_model_path,
                                                                 save_weights_only=True,
                                                                 monitor='loss', save_best_only=True)
 
     if config.train_mode:
-        if config.belu_callback:
-            model.fit(gen_dataset, epochs=config.epochs, steps_per_epoch=train_steps,
-                              callbacks=[evaluator, csv_logger])
+        model.fit(gen_dataset, epochs=config.epochs, steps_per_epoch=train_steps,
+                          callbacks=[evaluator, csv_logger])
     else:
+        # 预测阶段
         from jiwer import wer
         dev_gen_dataset = dev_gen_dataset.make_one_shot_iterator()
         iterator = dev_gen_dataset.get_next()
         sess = tf.Session()
         true_labels = []
         pred_labels = []
+        # 贪婪搜索
         if config.greedy:
-            model.load_weights(config.load_model_path)
+            if config.num_checkpoints == 1:
+                model.load_weights(config.load_model_path)
+            else:
+                model = average_checkpoints()
             for _ in tqdm(range(dev_steps)):
                 dev_data = sess.run(iterator)
                 pred = model.predict(dev_data[0])
@@ -289,23 +308,11 @@ if __name__ == '__main__':
             cer = wer(true_labels, pred_labels)
             print(cer)
         else:
-            model = build_model()
-            weights = []
-            for i in tqdm(range(config.num_checkpoints), desc='load model'):
-                if not weights:
-                    model.load_weights('%s%s.h5' % (config.save_model_path,str(i)))
-                    weights = model.get_weights()
-                else:
-                    model = build_model()
-                    model.load_weights('%s%s.h5' % (config.save_model_path,str(i)))
-                    tmp_weights = model.get_weights()
-                    for i, w in enumerate(tmp_weights):
-                        weights[i] += w
-            for i in range(len(weights)):
-                weights[i] = weights[i] / config.num_checkpoints
-            model = build_model()
-            model.set_weights(weights)
-
+            # beam search 搜索
+            if config.num_checkpoints == 1:
+                model.load_weights(config.load_model_path)
+            else:
+                model = average_checkpoints()
             scorer = Scorer(1, 4, scorer_path=config.scorer_path, alphabet=alphabet)
             pbar = tqdm(range(dev_steps))
             cers = []
@@ -322,5 +329,3 @@ if __name__ == '__main__':
                 cers.append(wer(true_labels, pred_labels))
                 pbar.set_description('cer: %.4f' % np.mean(cers))
             print(np.mean(cers), true_labels[0], pred_labels[0])
-else:
-    model.load_weights(config.save_model_path)

@@ -1,0 +1,45 @@
+train:
+  train_mode: True
+  multi_card: False
+  gpu_id: '0'
+evaluate:
+  train_mode: False
+  multi_card: False
+  gpu_id: '0'
+train_loaddirs:
+    - 'tfrecord_data/train'
+dev_loaddirs:
+    - 'tfrecord_data/test'
+train_csvs:
+    - 'tfrecord_data/train.csv'
+dev_csvs:
+    - 'tfrecord_data/test.csv'
+
+load_model_path: 'saved_model/aishell1_L16_H512_A128/best_model1.h5'
+save_model_path: 'saved_model/aishell1_L16_H512_A128/best_model'
+log_dir: 'logs/'
+task_name: 'aishell1_L16_H512_A128' # name for logs
+model_name: 'gau' # 'transformer' 使用transformer
+
+
+belu_callback: True # if True save best model with belu score, else with best accuracy or loss
+continue_train: False # if True continue train from existing checkpoint but need to change the initial learning rate
+greedy: False
+inter_CTC: True
+start_step: 0 # not useful for now
+learning_rate: 1.0
+max_file_size:
+feature_len:
+feature_dim: 80
+batch_size: 8
+warmup: 10000
+epochs: 1000
+seed: 42
+hidden_act: 'swish' # ['gelu', 'linear'] this set change linear to GLU in FFN
+hidden_size: 512
+inter_hidden_size: 512
+attention_key_size: 128
+n_layer: 16
+n_head: 1
+dropout_rate: 0.1
+attention_dropout_rate: 0.1

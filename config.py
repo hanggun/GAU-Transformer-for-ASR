@@ -1,9 +1,17 @@
 import yaml
+import argparse
 
-config_path = 'yamls/multitask_L32_H1024_A512_local.yaml'
-is_train = False
+parser = argparse.ArgumentParser(description='keras automatic speech recognition')
+parser.add_argument('--config_path',
+                    type=str,
+                    default=r'yamls/evaluate_multitask.yaml',
+                    help='config file path')
+parser.add_argument('--train',
+                        action='store_true',
+                        help='train or not train')
+args = parser.parse_args()
 
-with open(config_path, "r", encoding='utf-8') as f:
+with open(args.config_path, "r", encoding='utf-8') as f:
     cfg = yaml.load(f, yaml.SafeLoader)
 
 class Config:
@@ -21,4 +29,4 @@ class Config:
                 continue
             setattr(self, key, value)
 
-config = Config(is_train=is_train)
+config = Config(is_train=args.train)

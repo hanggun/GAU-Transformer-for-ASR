@@ -1,0 +1,46 @@
+train:
+  train_mode: True
+  multi_card: True
+  gpu_id: '0,1,2,3'
+evaluate:
+  train_mode: False
+  multi_card: False
+  gpu_id: '3'
+train_loaddirs:
+    - '/home/zxa/ps/ASRmodel/data/ST/tfrecord_data/train'
+dev_loaddirs:
+    - '/home/zxa/ps/ASRmodel/data/ST/tfrecord_data/test'
+train_csvs:
+    - '/home/zxa/ps/ASRmodel/data/ST/train.csv'
+dev_csvs:
+    - '/home/zxa/ps/ASRmodel/data/ST/test.csv'
+
+load_model_path: 'saved_model/st_L16_H512_A128/best_model7.h5'
+save_model_path: 'saved_model/st_L16_H512_A128/best_model'
+log_dir: 'logs/'
+task_name: 'st_L16_H512_A128' # name for logs
+model_name: 'gau' # 'transformer' 使用transformer
+scorer_path: '/home/zxa/ps/ASRmodel/kenlm_st.scorer'
+
+
+belu_callback: True # if True save best model with belu score, else with best accuracy or loss
+continue_train: False # if True continue train from existing checkpoint but need to change the initial learning rate
+inter_CTC: True
+greedy: False
+start_step: 0 # not useful for now
+learning_rate: 1.0
+max_file_size:
+feature_len:
+feature_dim: 80
+batch_size: 64
+warmup: 10000
+epochs: 1000
+seed: 42
+hidden_act: 'swish' # ['gelu', 'linear'] this set change linear to GLU in FFN
+hidden_size: 512
+inter_hidden_size: 512
+attention_key_size: 128
+n_layer: 16
+n_head: 1
+dropout_rate: 0.1
+attention_dropout_rate: 0.1

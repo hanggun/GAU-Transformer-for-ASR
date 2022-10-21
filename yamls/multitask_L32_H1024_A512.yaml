@@ -1,0 +1,66 @@
+train:
+  train_mode: True
+  multi_card: True
+  gpu_id: '0,1,2,3'
+evaluate:
+  train_mode: False
+  multi_card: False
+  gpu_id: '3'
+train_loaddirs:
+  - '/home/zxa/ps/WenetSpeech/toolkits/wenet/data/train_m/audio/dev/'
+  - '/home/zxa/ps/ASRmodel/data/primewords_md_2018_set1/tfrecord_data/train'
+  - '/home/zxa/ps/ASRmodel/data/primewords_md_2018_set1/tfrecord_data/dev'
+  - '/home/zxa/ps/ASRmodel/data/primewords_md_2018_set1/tfrecord_data/test'
+  - '/home/zxa/ps/ASRmodel/data/aidatatang_200zh/tfrecord_data/train'
+  - '/home/zxa/ps/ASRmodel/data/aidatatang_200zh/tfrecord_data/dev'
+  - '/home/zxa/ps/ASRmodel/data/aidatatang_200zh/tfrecord_data/test'
+  - '/home/zxa/ps/ASRmodel/data/magic_data/tfrecord_data/train'
+  - '/home/zxa/ps/ASRmodel/data/magic_data/tfrecord_data/dev'
+  - '/home/zxa/ps/ASRmodel/data/magic_data/tfrecord_data/test'
+  - '/home/zxa/ps/ASRmodel/data/ST/tfrecord_data/train'
+  - '/home/zxa/ps/ASRmodel/data/ST/tfrecord_data/dev'
+  - '/home/zxa/ps/ASRmodel/data/ST/tfrecord_data/test'
+  - '/home/zxa/ps/ASRmodel/data/data_aishell/tfrecord_data/train'
+  - '/home/zxa/ps/ASRmodel/data/data_aishell/tfrecord_data/dev'
+  - '/home/zxa/ps/ASRmodel/data/data_aishell/tfrecord_data/test'
+dev_loaddirs:
+  - '/home/zxa/ps/WenetSpeech/toolkits/wenet/data/dev/audio/dev/'
+train_csvs:
+  - '/home/zxa/ps/ASRmodel/data/primewords_md_2018_set1/total.csv'
+  - '/home/zxa/ps/ASRmodel/data/wenetspeech/train.csv'
+  - '/home/zxa/ps/ASRmodel/data/aidatatang_200zh/total.csv'
+  - '/home/zxa/ps/ASRmodel/data/magic_data/total.csv'
+  - '/home/zxa/ps/ASRmodel/data/ST/total.csv'
+  - '/home/zxa/ps/ASRmodel/data/data_aishell/total.csv'
+dev_csvs:
+  - '/home/zxa/ps/ASRmodel/data/wenetspeech/dev.csv'
+
+load_model_path: 'saved_model/multitask_L16_H512_A128/best_model0.h5'
+save_model_path: 'saved_model/multitask_L16_H512_A128/best_model'
+log_dir: 'logs/'
+task_name: 'multitask_L16_H512_A128' # name for logs
+model_name: 'gau' # 'transformer' 使用transformer
+scorer_path: '/home/zxa/ps/ASRmodel/kenlm_prime.scorer'
+
+belu_callback: True # if True save best model with belu score, else with best accuracy or loss
+continue_train: True # if True continue train from existing checkpoint but need to change the initial learning rate
+inter_CTC: True
+greedy: False
+num_checkpoints: 10
+start_step: 80000 # not useful for now
+learning_rate: 1.0
+max_file_size:
+feature_len: 1200
+feature_dim: 80
+batch_size: 32
+warmup: 41500
+epochs: 1000
+seed: 42
+hidden_act: 'swish' # ['gelu', 'linear'] this set change linear to GLU in FFN
+hidden_size: 512
+inter_hidden_size: 1024
+attention_key_size: 512
+n_layer: 32
+n_head: 1
+dropout_rate: 0.1
+attention_dropout_rate: 0.1

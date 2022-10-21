@@ -1,6 +1,6 @@
-from config import config
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+from config import config
+os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu_id
 
 from bert4keras.snippets import DataGenerator, sequence_padding, parallel_apply_generator
 from bert4keras.optimizers import Adam, extend_with_piecewise_linear_lr
@@ -11,6 +11,7 @@ from datetime import datetime
 from asr_utils.features.speech_featurizers import NumpySpeechFeaturizer
 from asr_utils.features.specaugment_numpy import Augmentation
 from ds_ctcdecoder import UTF8Alphabet
+from optimizer import extend_with_transformer_schedule
 from jiwer import wer
 
 import tensorflow as tf
@@ -83,7 +84,8 @@ class data_generator(DataGenerator):
                 func=self.encode,
                 iterable=self.sample(random),
                 workers=4,
-                max_queue_size=1024
+                max_queue_size=1024,
+                dummy=True  # if linux, use dummy=False
         ):
             is_end, feature, target_token_ids = d
             if config.multi_card:
@@ -113,8 +115,7 @@ class CrossEntropy(Loss):
 
 
 def build_model():
-    # 词表不同，将Encoder和Decoder分开创建
-    MODEL = GAU_alpha(
+    MODEL = GAU_alphaV2(
         vocab_size=None,
         hidden_size=config.hidden_size, # 512
         num_hidden_layers=config.n_layer, # 16
@@ -127,20 +128,44 @@ def build_model():
         max_position=512
     )
     MODEL.build()
-
-    output = MODEL.call(MODEL.inputs)
+    gau_model = MODEL.model
     y_true = Input(shape=(None, ), name='y_true')
     y_len = Input(shape=(1, ), name='y_len')
     label_len = Input(shape=(1, ), name='label_len')
-    outputs = CrossEntropy([0])([y_true, output, y_len, label_len])
-    model = keras.models.Model(MODEL.inputs + [y_true, y_len, label_len], outputs)
 
+    final_output = Dense(units=alphabet.GetSize()+1,
+                        use_bias=True,
+                        kernel_initializer=MODEL.initializer,
+                        activation='softmax',
+                        name='CTC-Layer')(gau_model.output)
+
+    if config.inter_CTC:
+        inter_output = gau_model.get_layer('Transformer-%d-GatedAttentionUnit-Norm' % (config.n_layer//2)).output
+        inter_output = Dense(units=2048,
+                            use_bias=True,
+                            kernel_initializer=MODEL.initializer,
+                            activation='relu',
+                            name='Inter-Projection')(inter_output)
+        inter_output = Dense(units=alphabet.GetSize()+1,
+                            use_bias=True,
+                            kernel_initializer=MODEL.initializer,
+                            activation='softmax',
+                            name='Inter-CTC-Layer')(inter_output)
+
+    if not config.inter_CTC:
+        outputs = CrossEntropy([1])([y_true, final_output, y_len, label_len])
+    else:
+        outputs = CrossEntropy([1])([y_true, final_output, y_len, label_len, inter_output])
+    model = keras.models.Model(gau_model.inputs + [y_true, y_len, label_len], outputs)
     # 线性递增递减学习率
-    Adamp = extend_with_piecewise_linear_lr(Adam)
-    model.compile(optimizer=Adamp(learning_rate=config.learning_rate,
-                                  lr_schedule={0: 0.0, config.warmup:1., 400000: 0.1},
+    Adamt = extend_with_transformer_schedule(Adam)
+    model.compile(optimizer=Adamt(learning_rate=config.learning_rate,
+                                  start_step=config.start_step,
+                                  warmup_steps=config.warmup,
+                                  d_model=config.hidden_size,
+                                  beta_1=0.9,
+                                  beta_2=0.98
                                   ))
-    model.summary()
     return model
 
 
@@ -155,8 +180,14 @@ class Evaluator(keras.callbacks.Callback):
     """评估与保存
     from https://github.com/ZhuiyiTechnology/t5-pegasus/blob/main/finetune.py
     """
+    def __init__(self):
+        super().__init__()
+        self.count = 0
     def on_epoch_end(self, epoch, logs=None):
-        model.save_weights(config.save_model_path)  # 保存模型
+        self.count %= 10
+        model.save_weights(config.save_model_path + str(self.count)+'.h5')
+        print(f'count {self.count}')
+        self.count += 1
 
 
 def load_data(filename):
@@ -171,8 +202,6 @@ def load_data(filename):
         transcript = df.loc[i, 'transcript']
         maxlen = max(maxlen, len(transcript.split()))
         max_filesize = max(max_filesize, wav_filesize)
-        if wav_filesize > 640044:  # 去掉大于20s的
-            continue
         out.append((wav_filename, transcript))
     print(f"maxlen of {filename} is {maxlen}, max_filesize of {filename} is {max_filesize}, number of samples is {len(out)}")
     return out
@@ -187,8 +216,6 @@ if __name__ == '__main__':
     valid_data = load_data(config.dev_csvs[0])
 
     train_loader = data_generator(data=read_wav(data), batch_size=config.batch_size, run_mode='train')  # 只有训练集需要加mode=train，加入数据增强
-    for data in tqdm(train_loader.__iter__()):
-        pass
     valid_loader = data_generator(data=read_wav(valid_data), batch_size=config.batch_size)
     evaluator = Evaluator()
     if config.continue_train:
