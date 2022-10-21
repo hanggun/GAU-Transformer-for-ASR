@@ -5,6 +5,7 @@ GAU transformer 在语音领域的应用，采用CTC结构+interCTC+stochastic D
 - tensorflow-gpu==1.15.5
 - keras==2.3.1
 - ds_ctcdecoder==0.9.3
+- 其他环境可以在requirement.txt中查找
 
 ### 结果
 采用primewords_md_2018_set1，wenetspeech—1000h，aidatatang_200zh，magic_data，ST-CMDs，aishell1共同训练了32层GAU模型，共含2000+小时数据，4张2080TI训练12天，共30轮，损失为27.22，对最后6轮的权重进行平均后得到最终模型，在wenet验证集上的结果为11.32。虽然不如wenet的8.80，但是此结构训练所需资源少，且只用了2000+小时数据进行训练
