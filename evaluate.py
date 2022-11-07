@@ -38,16 +38,19 @@ else:
     scorer = Scorer(1, 4, scorer_path=config.scorer_path, alphabet=alphabet)
     pbar = tqdm(range(dev_steps))
     cers = []
-    for _ in pbar:
-        dev_data = sess.run(iterator)
-        pred = model.predict(dev_data[0])
-        decoded = ctc_beam_search_decoder_batch(pred.tolist(), np.squeeze(dev_data[0][2]).tolist(),
-                                                     alphabet, 100,
-                                                     num_processes=12, cutoff_top_n=40, scorer=scorer)
-        for _true, _pred in zip(dev_data[0][1].tolist(), decoded):
-            _true = [x for x in _true if x != 0]
-            true_labels.append(' '.join(alphabet.Decode(_true)))
-            pred_labels.append(' '.join(_pred[0][1]))
-        cers.append(wer(true_labels, pred_labels))
-        pbar.set_description('cer: %.4f' % np.mean(cers))
+    try:
+        for _ in pbar:
+            dev_data = sess.run(iterator)
+            pred = model.predict(dev_data[0])
+            decoded = ctc_beam_search_decoder_batch(pred.tolist(), np.squeeze(dev_data[0][2]).tolist(),
+                                                         alphabet, 100,
+                                                         num_processes=12, cutoff_top_n=40, scorer=scorer)
+            for _true, _pred in zip(dev_data[0][1].tolist(), decoded):
+                _true = [x for x in _true if x != 0]
+                true_labels.append(' '.join(alphabet.Decode(_true)))
+                pred_labels.append(' '.join(_pred[0][1]))
+            cers.append(wer(true_labels, pred_labels))
+            pbar.set_description('cer: %.4f' % np.mean(cers))
+    except tf.errors.OutOfRangeError:
+        print('end! some value is filtered in dataloader')
     print(np.mean(cers), true_labels[0], pred_labels[0])
